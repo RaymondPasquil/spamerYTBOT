@@ -13,7 +13,7 @@ const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
 // Authenticate YouTube
 const youtubeAuth = new google.auth.OAuth2();
-youtubeAuth.setCredentials(require('./credentials/youtube_credentials.json'));
+youtubeAuth.setCredentials(require('./credentials/client_secret_account1.json'));
 const youtube = google.youtube({ version: 'v3', auth: youtubeAuth });
 
 // Fetch YouTube comments
