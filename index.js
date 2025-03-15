@@ -9,66 +9,98 @@ const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Initialize Telegram bot
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+const bot = new TelegramBot(telegramToken, { polling: true });
 
-// Authenticate YouTube
-const youtubeAuth = new google.auth.OAuth2();
-youtubeAuth.setCredentials(require('client_secret_account1.json'));
+// Authenticate YouTube API
+const credentials = JSON.parse(fs.readFileSync('client_secret_account1.json', 'utf8'));
+const youtubeAuth = new google.auth.JWT(
+  credentials.client_email,
+  null,
+  credentials.private_key,
+  ['https://www.googleapis.com/auth/youtube.force-ssl']
+);
 const youtube = google.youtube({ version: 'v3', auth: youtubeAuth });
+
+// Extract Video ID from YouTube URL
+function extractVideoId(url) {
+  const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+  const match = url.match(regex);
+  return match ? match[1] : null;
+}
 
 // Fetch YouTube comments
 async function getComments(videoId) {
-  const res = await youtube.commentThreads.list({
-    part: 'snippet',
-    videoId: video_id,
-    maxResults: 50,
-  });
-  return res.data.items.map(item => item.snippet.topLevelComment.snippet.textOriginal);
+  try {
+    const res = await youtube.commentThreads.list({
+      part: 'snippet',
+      videoId: videoId,
+      maxResults: 50,
+    });
+
+    return res.data.items.map(item => item.snippet.topLevelComment.snippet.textOriginal);
+  } catch (error) {
+    console.error('Error fetching comments:', error.message);
+    return [];
+  }
 }
 
 // Generate OpenAI reply
 async function generateReply(comment) {
-  const openaiResponse = await new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  }).chat.completions.create({
-    model: 'gpt-3.5-turbo',
-    messages: [{ role: 'user', content: `Reply to YouTube comment: ${comment}` }],
-  });
+  try {
+    const openaiResponse = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages: [{ role: 'user', content: `Reply to this YouTube comment: "${comment}"` }],
+    });
 
-  return openaiResponse.choices[0].message.content;
+    return openaiResponse.choices[0].message.content.trim();
+  } catch (error) {
+    console.error('Error generating OpenAI response:', error.message);
+    return 'Thanks for your comment!';
+  }
 }
 
 // Post comment on YouTube
 async function postComment(videoId, text) {
-  await youtube.commentThreads.insert({
-    part: 'snippet',
-    requestBody: {
-      snippet: {
-        videoId,
-        topLevelComment: {
-          snippet: { textOriginal: text },
+  try {
+    await youtube.commentThreads.insert({
+      part: 'snippet',
+      requestBody: {
+        snippet: {
+          videoId: videoId,
+          topLevelComment: {
+            snippet: { textOriginal: text },
+          },
         },
       },
-    },
-  });
+    });
+
+    console.log('Comment posted successfully:', text);
+  } catch (error) {
+    console.error('Error posting comment:', error.message);
+  }
 }
 
-// Telegram message handling
+// Handle Telegram messages with YouTube links
 bot.onText(/(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/, async (msg, match) => {
   const chatId = msg.chat.id;
   const videoUrl = match[0];
-  const videoId = videoIdFromUrl(video_url);
+  const videoId = extractVideoId(videoUrl);
 
-  const comments = await youtube.commentThreads.list({
-    part: 'snippet',
-    videoId: videoId,
-    maxResults: 10,
-  });
+  if (!videoId) {
+    bot.sendMessage(chatId, 'Invalid YouTube link. Please try again.');
+    return;
+  }
 
-  if (comments.data.items.length > 0) {
-    const randomComment = comments.items[Math.floor(Math.random() * comments.items.length)];
-    const reply = await generateReply(randomComment.snippet.topLevelComment.snippet.textDisplay);
-    await postComment(youtube, video_id, reply);
+  bot.sendMessage(chatId, 'Fetching comments...');
+
+  const comments = await getComments(videoId);
+
+  if (comments.length > 0) {
+    const randomComment = comments[Math.floor(Math.random() * comments.length)];
+    const reply = await generateReply(randomComment);
+    
+    await postComment(videoId, reply);
+
     bot.sendMessage(chatId, 'Comment posted successfully!');
   } else {
     bot.sendMessage(chatId, 'No comments found on that video.');
