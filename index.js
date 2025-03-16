@@ -6,7 +6,16 @@ const fs = require('fs');
 
 // Load API keys from .env
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openaiApiKey = process.env.OPENAI_API_KEY;
+const googleClientEmail = process.env.GOOGLE_CLIENT_EMAIL;
+const googlePrivateKey = process.env.GOOGLE_PRIVATE_KEY;
+
+if (!telegramToken || !openaiApiKey || !googleClientEmail || !googlePrivateKey) {
+    console.error("❌ Missing required API keys in .env file.");
+    process.exit(1);
+}
+
+const openai = new OpenAI({ apiKey: openaiApiKey });
 
 // Initialize Telegram bot
 const bot = new TelegramBot(telegramToken, { polling: true });
@@ -14,17 +23,14 @@ const bot = new TelegramBot(telegramToken, { polling: true });
 // Authenticate YouTube API
 let youtube;
 try {
-    const credentials = JSON.parse(fs.readFileSync('client_secret_account1.json', 'utf8'));
-
     const youtubeAuth = new google.auth.JWT(
-        credentials.client_email,
+        googleClientEmail,
         null,
-        credentials.private_key.replace(/\\n/g, '\n'), // Fixes newline issue in keys
+        googlePrivateKey.replace(/\\n/g, '\n'), // Fixes newline issue in keys
         ['https://www.googleapis.com/auth/youtube.force-ssl']
     );
-
+    
     youtube = google.youtube({ version: 'v3', auth: youtubeAuth });
-
     console.log('✅ YouTube API authenticated successfully');
 } catch (error) {
     console.error('❌ Error setting up YouTube API authentication:', error.message);
@@ -33,7 +39,7 @@ try {
 
 // Extract Video ID from YouTube URL
 function extractVideoId(url) {
-    const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+    const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/]+\/.*\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
     const match = url.match(regex);
     return match ? match[1] : null;
 }
@@ -115,7 +121,6 @@ bot.onText(/(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/, async (msg, mat
         const reply = await generateReply(randomComment);
 
         await postComment(videoId, reply);
-
         bot.sendMessage(chatId, '✅ Comment posted successfully!');
     } else {
         bot.sendMessage(chatId, '⚠️ No comments found on that video.');
