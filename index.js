@@ -1,17 +1,20 @@
+
 const { google } = require('googleapis');
 const TelegramBot = require('node-telegram-bot-api');
 const { OpenAI } = require('openai');
 require('dotenv').config();
 const fs = require('fs');
+const path = require('path');
 
-// Load API keys from .env
+// Load API keys and OAuth credentials from .env
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
 const openaiApiKey = process.env.OPENAI_API_KEY;
-const googleClientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-const googlePrivateKey = process.env.GOOGLE_PRIVATE_KEY;
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
-if (!telegramToken || !openaiApiKey || !googleClientEmail || !googlePrivateKey) {
-    console.error("❌ Missing required API keys in .env file.");
+if (!telegramToken  !openaiApiKey  !CLIENT_ID  !CLIENT_SECRET  !REDIRECT_URI) {
+    console.error("❌ Missing required API keys or OAuth credentials in .env file.");
     process.exit(1);
 }
 
@@ -20,22 +23,31 @@ const openai = new OpenAI({ apiKey: openaiApiKey });
 // Initialize Telegram bot
 const bot = new TelegramBot(telegramToken, { polling: true });
 
-// Authenticate YouTube API
-let youtube;
-try {
-    const youtubeAuth = new google.auth.JWT(
-        googleClientEmail,
-        null,
-        googlePrivateKey.replace(/\\n/g, '\n'), // Fixes newline issue in keys
-        ['https://www.googleapis.com/auth/youtube.force-ssl']
-    );
-    
-    youtube = google.youtube({ version: 'v3', auth: youtubeAuth });
-    console.log('✅ YouTube API authenticated successfully');
-} catch (error) {
-    console.error('❌ Error setting up YouTube API authentication:', error.message);
-    process.exit(1); // Exit if authentication fails
+// Create OAuth2 client
+const oauth2Client = new google.auth.OAuth2(
+    CLIENT_ID,
+    CLIENT_SECRET,
+    REDIRECT_URI
+);
+
+const TOKEN_PATH = path.join(__dirname, 'token.json');
+
+if (fs.existsSync(TOKEN_PATH)) {
+    const token = fs.readFileSync(TOKEN_PATH, 'utf8');
+    oauth2Client.setCredentials(JSON.parse(token));
+    console.log('✅ OAuth2 token loaded from file.');
+} else {
+    console.error("❌ OAuth2 token not found. Please run get_token.js to obtain a token.");
+    process.exit(1);
 }
+
+// Initialize YouTube API with OAuth2 client
+const youtube = google.youtube({
+    version: 'v3',
+    auth: oauth2Client
+});
+
+console.log('✅ YouTube API authenticated successfully');
 
 // Extract Video ID from YouTube URL
 function extractVideoId(url) {
@@ -53,7 +65,7 @@ async function getComments(videoId) {
             maxResults: 50,
         });
 
-        if (!res.data.items || res.data.items.length === 0) {
+        if (!res.data.items  res.data.items.length === 0) {
             console.log('ℹ️ No comments found.');
             return [];
         }
@@ -73,7 +85,7 @@ async function generateReply(comment) {
             messages: [{ role: 'user', content: `Reply to this YouTube comment: "${comment}"` }],
         });
 
-        return openaiResponse.choices[0]?.message?.content?.trim() || 'Thanks for your comment!';
+        return openaiResponse.choices[0]?.message?.content?.trim()  'Thanks for your comment!';
     } catch (error) {
         console.error('❌ Error generating OpenAI response:', error.message);
         return 'Thanks for your comment!';
@@ -95,7 +107,7 @@ async function postComment(videoId, text) {
             },
         });
 
-        console.log(`✅ Comment posted successfully: "${text}"`);
+        console.log(✅ Comment posted successfully: "${text}");
     } catch (error) {
         console.error('❌ Error posting comment:', error.message);
     }
@@ -116,7 +128,8 @@ bot.onText(/(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/, async (msg, mat
 
     const comments = await getComments(videoId);
 
-    if (comments.length > 0) {
+
+if (comments.length > 0) {
         const randomComment = comments[Math.floor(Math.random() * comments.length)];
         const reply = await generateReply(randomComment);
 
@@ -128,3 +141,6 @@ bot.onText(/(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/, async (msg, mat
 });
 
 console.log('🤖 Bot is running...');
+
+
+
